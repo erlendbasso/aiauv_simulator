@@ -1,0 +1,103 @@
+define: &PI 3.14159265358979323846
+define: &PI_HALF 1.57079632679489661923
+define: &PI_HALF_NEG -1.57079632679489661923
+
+# define: &link_lengths [0.62, 0.1, 0.59, 0.1, 0.80, 0.1, 0.59, 0.1, 0.37]
+
+sim_time: 10
+gravity: [0.0, 0.0, 9.81]
+# nonlinear drag coeffs in surge, roll, nonlinear crossflow drag coeff, 
+dragcoeffs: 
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+joint_types: 
+  - SixDOF
+  - Revolute
+  - Revolute
+  - Revolute
+  - Revolute
+  - Revolute
+  - Revolute
+  - Revolute
+  - Revolute
+# mass: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+mass: []
+# radius: [0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085]
+radius: [0.09, 0.09, 0.09, 0.09, 0.09, 0.09, 0.09, 0.09, 0.09]
+length: [&LL1 0.62, &LL2 0.1, &LL3 0.59, &LL4 0.1, &LL5 0.80, &LL6 0.1, &LL7 0.59, &LL8 0.1, &LL9 0.37]
+fluid_density: 1000.0
+parents: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+pos_com:
+  - [0.31, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.295, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.40, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.295, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.185, 0.0, 0.0]
+pos_cob:
+  - [0.31, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.295, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.40, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.295, 0.0, 0.0]
+  - [0.05, 0.0, 0.0]
+  - [0.185, 0.0, 0.0]
+
+# translations from frame i-1 to frame i (in frame i-1)
+# Note that the offsets corresponding to SixDOF joints can be set to zero
+pos_offsets: 
+  - [0.0, 0.0, 0.0]
+  - [*LL1, 0.0, 0.0]
+  - [*LL2, 0.0, 0.0]
+  - [*LL3, 0.0, 0.0]
+  - [*LL4, 0.0, 0.0]
+  - [*LL5, 0.0, 0.0]
+  - [*LL6, 0.0, 0.0]
+  - [*LL7, 0.0, 0.0]
+  - [*LL8, 0.0, 0.0]
+# [roll (phi), pitch(theta), yaw(psi)] representing R=Rz(psi)*Ry(theta)*Rx(phi)
+# R rotates a vector x in frame i into frame i-1
+# equivalently, rotates frame i-1 into frame i
+roll_pitch_yaw_offsets: 
+  - [0.0, 0.0, 0.0]
+  - [0.0, 0.0, 0.0]
+  - [*PI_HALF_NEG, 0.0, 0.0]
+  - [*PI_HALF, 0.0, 0.0]
+  - [*PI_HALF_NEG, 0.0, 0.0]
+  - [*PI_HALF, 0.0, 0.0]
+  - [*PI_HALF_NEG, 0.0, 0.0]
+  - [*PI_HALF, 0.0, 0.0]
+  - [*PI_HALF_NEG, 0.0, 0.0]
+thruster_pos_offsets:
+  - [0.24, 0.0, 0.0]
+  - [0.35, 0.0, 0.0]
+  - [0.24, 0.0, 0.0]
+  - [0.53, 0.0, 0.15]
+  - [0.53, 0.0, -0.15]
+  - [0.24, 0.0, 0.1]
+  - [0.35, 0.0, 0.1]
+# The direction of the thruster force in link frame
+thruster_dirs:
+  - [0.0, -1.0, 0.0]
+  - [0.0, 0.0, 1.0]
+  - [0.0, -1.0, 0.0]
+  - [1.0, 0.0, 0.0]
+  - [1.0, 0.0, 0.0]
+  - [0.0, 0.0, 1.0]
+  - [0.0, -1.0, 0.0]
+thruster_parents: [3, 3, 5, 5, 5, 7, 7]
+# thruster_parents: [2, 2, 3, 3, 3, 4, 4]
+added_mass_coeffs: []
+added_alpha: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]

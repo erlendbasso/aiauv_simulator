@@ -1,0 +1,3 @@
+[submodule "multibody_dynamics"]
+	path = multibody_dynamics
+	url = git@turlab.itk.ntnu.no:turlab/multibody_dynamics.git
