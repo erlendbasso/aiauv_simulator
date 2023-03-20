@@ -1,3 +1,6 @@
 [submodule "multibody_dynamics"]
 	path = multibody_dynamics
 	url = git@turlab.itk.ntnu.no:turlab/multibody_dynamics.git
+[submodule "ode-solvers"]
+	path = ode-solvers
+	url = https://github.com/erlendbasso/ode-solvers.git
