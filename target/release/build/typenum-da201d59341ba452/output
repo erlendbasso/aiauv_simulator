@@ -1,3 +1,0 @@
-cargo:rerun-if-changed=build/main.rs
-cargo:rustc-env=TYPENUM_BUILD_CONSTS=/Users/erlendbasso/dev/aiauv_simulator/target/release/build/typenum-da201d59341ba452/out/consts.rs
-cargo:rustc-env=TYPENUM_BUILD_OP=/Users/erlendbasso/dev/aiauv_simulator/target/release/build/typenum-da201d59341ba452/out/op.rs
