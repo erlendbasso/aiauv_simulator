@@ -4,7 +4,7 @@ define: &PI_HALF_NEG -1.57079632679489661923
 
 # define: &link_lengths [0.62, 0.1, 0.59, 0.1, 0.80, 0.1, 0.59, 0.1, 0.37]
 
-sim_time: 10
+sim_time: 100
 gravity: [0.0, 0.0, 9.81]
 # nonlinear drag coeffs in surge, roll, nonlinear crossflow drag coeff, 
 dragcoeffs: 

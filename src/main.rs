@@ -220,7 +220,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     println!("y0: {}", y0);
     // Create a stepper and run the integration.
-    let mut stepper = Dop853::new(system, 0.0, cfg.sim_time, 0.001, y0, 1.0e-4, 1.0e-4);
+    let mut stepper = Dopri5::new(system, 0.0, cfg.sim_time, 0.01, y0, 1.0e-4, 1.0e-4);
     let res = stepper.integrate();
     
     println!("Time elapsed: {} ms", now.elapsed().as_millis());
