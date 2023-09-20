@@ -81,7 +81,6 @@ impl ode_solvers::System<State> for AIAUV {
         let mut eta = SVector::<f64, 14>::zeros();
 
         // testing with a swimming gait, add your own controller here:
-        let thrust = vec![0.0; 14];
         // let phaseramp = 0.4 * PI;
         let phaseramp = 1.0;
 
@@ -100,6 +99,7 @@ impl ode_solvers::System<State> for AIAUV {
         let Kd = 10.0;
 
         let joint_torque = -Kp * (theta - theta_d) - Kd * (theta_dot - theta_dotd);
+        let thrust = vec![0.0; 7];
 
         let wrenches = compute_thruster_wrenches(&self.config, &thrust, None);
         eta.fixed_rows_mut::<8>(6).copy_from(&joint_torque);
