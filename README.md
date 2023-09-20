@@ -3,7 +3,7 @@
 1. Clone repo
 
     ```
-    git clone git@turlab.itk.ntnu.no:turlab/snakegroup/aiauv-simulator.git --recursive
+    git clone https://github.com/erlendbasso/aiauv_simulator.git --recursive
     ```
 
 2. Run simulator

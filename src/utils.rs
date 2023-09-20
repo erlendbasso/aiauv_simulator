@@ -1,17 +1,24 @@
+#![allow(dead_code)]
+
 extern crate nalgebra as na;
 use std::f64::consts::PI;
 
 use multibody_dynamics::math_functions::skew;
 use na::{
-    Vector3, Vector6, Translation3, UnitQuaternion, Isometry3, Matrix3,
-    Matrix6, Vector2, SVector, Matrix4, SMatrix, Quaternion, Vector4,
+    Isometry3, Matrix3, Matrix4, Matrix6, Quaternion, SMatrix, SVector, Translation3,
+    UnitQuaternion, Vector2, Vector3, Vector4, Vector6,
 };
 
 use crate::Config;
 
-
 /// Computes the added mass matrix of a slender body.
-pub fn slendermasss(length: f64, radius: f64, fluid_density: f64, alpha: Option<f64>, coeff_added: Option<f64>) -> Matrix6<f64> {
+pub fn slendermasss(
+    length: f64,
+    radius: f64,
+    fluid_density: f64,
+    alpha: Option<f64>,
+    coeff_added: Option<f64>,
+) -> Matrix6<f64> {
     let mut fluid_added_mass = Matrix6::zeros();
     match alpha {
         Some(alpha) => {
@@ -31,51 +38,56 @@ pub fn slendermasss(length: f64, radius: f64, fluid_density: f64, alpha: Option<
     fluid_added_mass[(1, 5)] = length.powi(2) / 2.0;
     fluid_added_mass[(5, 1)] = length.powi(2) / 2.0;
 
-
     match coeff_added {
-        Some(coeff) => {
-            fluid_added_mass * fluid_density * PI * radius.powi(2) * coeff
-        }
-        None => {
-            fluid_added_mass * fluid_density * PI * radius.powi(2) * 1.0
-        }
+        Some(coeff) => fluid_added_mass * fluid_density * PI * radius.powi(2) * coeff,
+        None => fluid_added_mass * fluid_density * PI * radius.powi(2) * 1.0,
     }
 }
 
-pub fn comp_rb_mass_rotational(r_cog: Vector3<f64>, radius: f64, length: f64, mass: f64) -> Matrix3<f64> {
+pub fn comp_rb_mass_rotational(
+    r_cog: Vector3<f64>,
+    radius: f64,
+    length: f64,
+    mass: f64,
+) -> Matrix3<f64> {
     let mut I_r = Matrix3::zeros();
 
     let d = r_cog[2];
     let m_r = d.abs() / radius * mass;
     let m_c = mass - m_r;
 
-    let I_c = m_c * Matrix3::from_diagonal(&Vector3::new(
-        radius.powi(2) / 2.0, 
-        radius.powi(2) / 4.0 + length.powi(2) / 3.0, 
-        radius.powi(2) / 4.0 + length.powi(2) / 3.0
-    ));
+    let I_c = m_c
+        * Matrix3::from_diagonal(&Vector3::new(
+            radius.powi(2) / 2.0,
+            radius.powi(2) / 4.0 + length.powi(2) / 3.0,
+            radius.powi(2) / 4.0 + length.powi(2) / 3.0,
+        ));
 
     I_r[(0, 0)] = m_r * d.powi(2);
-    I_r[(1, 1)] = m_r * (d.powi(2) + length.powi(2) / 3.0 );
-    I_r[(2, 2)] = m_r * (length.powi(2) / 3.0 );
+    I_r[(1, 1)] = m_r * (d.powi(2) + length.powi(2) / 3.0);
+    I_r[(2, 2)] = m_r * (length.powi(2) / 3.0);
 
-    I_r[(0, 2)] = - m_r * 0.5 * length * d;
-    I_r[(2, 0)] = - m_r * 0.5 * length * d;
+    I_r[(0, 2)] = -m_r * 0.5 * length * d;
+    I_r[(2, 0)] = -m_r * 0.5 * length * d;
 
     I_r + I_c
 }
 
 /// Computes the thruster wrenches in the body frame of the thrusters parent link. The torque scaling factor [m] gives you the moment per thrust [N].
-pub fn compute_thruster_wrenches(cfg: &Config, thrust: &[f64], torque_scaling_factor: Option<&Vec<f64>>) -> Vec<Vector6<f64>> {
+pub fn compute_thruster_wrenches(
+    cfg: &Config,
+    thrust: &[f64],
+    torque_scaling_factor: Option<&Vec<f64>>,
+) -> Vec<Vector6<f64>> {
     let num_bodies = cfg.joint_types.len();
     let num_thrusters = cfg.thruster_dirs.len();
     let mut thruster_wrenches = vec![Vector6::zeros(); num_bodies];
     let lambda = |x: usize| -> i32 { cfg.thruster_parents[x] as i32 - 1 };
 
-    let mut force : Vector3<f64>;
-    let mut torque : Vector3<f64>;
-    let mut wrench : Vector6<f64>;
-    
+    let mut force: Vector3<f64>;
+    let mut torque: Vector3<f64>;
+    let mut wrench: Vector6<f64>;
+
     for i in 0..num_thrusters {
         force = cfg.thruster_dirs[i] * thrust[i];
         let torque_scaling = match torque_scaling_factor {
@@ -83,14 +95,20 @@ pub fn compute_thruster_wrenches(cfg: &Config, thrust: &[f64], torque_scaling_fa
             None => 0.0,
         };
         torque = cfg.thruster_pos_offsets[i].cross(&force) + torque_scaling * force;
-        wrench = Vector6::new(force[0], force[1], force[2], torque[0], torque[1], torque[2]);
+        wrench = Vector6::new(
+            force[0], force[1], force[2], torque[0], torque[1], torque[2],
+        );
 
         thruster_wrenches[lambda(i) as usize] += wrench;
     }
     thruster_wrenches
 }
 
-pub fn comp_tcm<const NUM_DOFS: usize, const NUM_THRUSTERS: usize>(cfg: &Config, jacs: &[SMatrix<f64, 6, NUM_DOFS>]) -> SMatrix<f64, NUM_DOFS, NUM_THRUSTERS> {
+/// Computes the thruster configuration matrix T: \tau = T f, where f contains thruster forces and \tau is the resulting generalized forces.
+pub fn comp_tcm<const NUM_DOFS: usize, const NUM_THRUSTERS: usize>(
+    cfg: &Config,
+    jacs: &[SMatrix<f64, 6, NUM_DOFS>],
+) -> SMatrix<f64, NUM_DOFS, NUM_THRUSTERS> {
     let num_thrusters = cfg.thruster_dirs.len();
     let mut tcm = SMatrix::<f64, NUM_DOFS, NUM_THRUSTERS>::zeros();
 
@@ -98,15 +116,22 @@ pub fn comp_tcm<const NUM_DOFS: usize, const NUM_THRUSTERS: usize>(cfg: &Config,
 
     for i in 0..num_thrusters {
         let mut B_i = Vector6::<f64>::zeros();
-        B_i.fixed_view_mut::<3, 1>(0, 0).copy_from(&cfg.thruster_dirs[i]);
-        B_i.fixed_view_mut::<3, 1>(3, 0).copy_from(&cfg.thruster_pos_offsets[i].cross(&cfg.thruster_dirs[i]));
+        B_i.fixed_view_mut::<3, 1>(0, 0)
+            .copy_from(&cfg.thruster_dirs[i]);
+        B_i.fixed_view_mut::<3, 1>(3, 0)
+            .copy_from(&cfg.thruster_pos_offsets[i].cross(&cfg.thruster_dirs[i]));
         let col = jacs[lambda(i) as usize].transpose() * B_i;
         tcm.fixed_columns_mut(i).copy_from(&col);
     }
     tcm
 }
 
-pub fn cross_flow_drag_rb(nu: &Vector6<f64>, mu: &Vector6<f64>, cfg: &Config, i: usize) -> Vector6<f64> {
+pub fn cross_flow_drag_rb(
+    nu: &Vector6<f64>,
+    mu: &Vector6<f64>,
+    cfg: &Config,
+    i: usize,
+) -> Vector6<f64> {
     let rho = cfg.fluid_density;
     let r = cfg.radius[i];
     let l = cfg.length[i];
@@ -124,17 +149,17 @@ pub fn cross_flow_drag_rb(nu: &Vector6<f64>, mu: &Vector6<f64>, cfg: &Config, i:
     drag_nonlin[3] = 0.5 * rho * l * r.powi(4) * PI * drag_roll * nu[3].abs() * mu[3];
 
     let b = 1.0;
-    let a  = 0.0;
+    let a = 0.0;
     let n = 9;
 
-    let drag_2d = &|x : f64| -> Vector4<f64> {
+    let drag_2d = &|x: f64| -> Vector4<f64> {
         let mut out = Vector4::<f64>::zeros();
-        let sqrtx = ( (nu[1] + x * nu[5]).powi(2) + (nu[2] - x * nu[4]).powi(2) ).sqrt();
-        
-        out[0] =  sqrtx * (mu[1] + x * mu[5]);
-        out[1] =  sqrtx * (mu[2] - x * mu[4]);
-        out[2] =  sqrtx * (-mu[2] * x + mu[4] * x.powi(2));
-        out[3] =  sqrtx * (mu[1] * x + mu[5] * x.powi(2));
+        let sqrtx = ((nu[1] + x * nu[5]).powi(2) + (nu[2] - x * nu[4]).powi(2)).sqrt();
+
+        out[0] = sqrtx * (mu[1] + x * mu[5]);
+        out[1] = sqrtx * (mu[2] - x * mu[4]);
+        out[2] = sqrtx * (-mu[2] * x + mu[4] * x.powi(2));
+        out[3] = sqrtx * (mu[1] * x + mu[5] * x.powi(2));
 
         out
     };
@@ -150,32 +175,36 @@ pub fn cross_flow_drag_rb(nu: &Vector6<f64>, mu: &Vector6<f64>, cfg: &Config, i:
 
     let dragcoeff_lin = rho * r * l * drag_linear;
     drag_lin[0] = dragcoeff_lin * scaling_factor_surge * mu[0];
-    drag_lin[1] = dragcoeff_lin  * (mu[1] + 0.5 * l * mu[5] );
-    drag_lin[2] = dragcoeff_lin  * (mu[2] - 0.5 * l * mu[4] );
-    drag_lin[3] = dragcoeff_lin  * scaling_factor_roll * r.powi(2) * mu[3];
-    drag_lin[4] = dragcoeff_lin  * (- 0.5 * l * mu[2] + l.powi(2) * mu[4] / 3.0 );
-    drag_lin[5] = dragcoeff_lin  * ( 0.5 * l * mu[1] + l.powi(2) * mu[5] / 3.0 );
+    drag_lin[1] = dragcoeff_lin * (mu[1] + 0.5 * l * mu[5]);
+    drag_lin[2] = dragcoeff_lin * (mu[2] - 0.5 * l * mu[4]);
+    drag_lin[3] = dragcoeff_lin * scaling_factor_roll * r.powi(2) * mu[3];
+    drag_lin[4] = dragcoeff_lin * (-0.5 * l * mu[2] + l.powi(2) * mu[4] / 3.0);
+    drag_lin[5] = dragcoeff_lin * (0.5 * l * mu[1] + l.powi(2) * mu[5] / 3.0);
 
-    - drag_lin - drag_nonlin
+    -drag_lin - drag_nonlin
 }
 
-pub fn discrete_quat_update(quat: &UnitQuaternion<f64>, omega: &Vector3<f64>) -> UnitQuaternion<f64> {
+pub fn discrete_quat_update(
+    quat: &UnitQuaternion<f64>,
+    omega: &Vector3<f64>,
+) -> UnitQuaternion<f64> {
     let omg_norm = omega.norm();
-    let delta_q : UnitQuaternion<f64> = if omg_norm > 1e-8 {
+    let delta_q: UnitQuaternion<f64> = if omg_norm > 1e-8 {
         let delta_epsilon = f64::sin(0.5 * omega.norm()) * omega / omega.norm();
         UnitQuaternion::from_quaternion(Quaternion::new(
-            f64::cos(0.5 * omega.norm()), 
+            f64::cos(0.5 * omega.norm()),
             delta_epsilon[0],
             delta_epsilon[1],
-            delta_epsilon[2]))
-        }
-    else {
-         let quat_vec =  (0.5 - 1.0/48.0 * f64::powi(omega.norm(), 2)) * omega;
-         UnitQuaternion::from_quaternion(Quaternion::new(
-             1.0 - 1.0/8.0 * f64::powi(omega.norm(), 2) + 1.0/384.0 * f64::powi(omega.norm(), 4),
-             quat_vec[0],
-             quat_vec[1],
-             quat_vec[2]))
+            delta_epsilon[2],
+        ))
+    } else {
+        let quat_vec = (0.5 - 1.0 / 48.0 * f64::powi(omega.norm(), 2)) * omega;
+        UnitQuaternion::from_quaternion(Quaternion::new(
+            1.0 - 1.0 / 8.0 * f64::powi(omega.norm(), 2) + 1.0 / 384.0 * f64::powi(omega.norm(), 4),
+            quat_vec[0],
+            quat_vec[1],
+            quat_vec[2],
+        ))
     };
     quat * delta_q
 }
@@ -194,9 +223,10 @@ where
     F: Fn(f64) -> Vector4<f64>,
 {
     let mut out = Vector4::<f64>::zeros();
-    let dx : f64 = (b - a) / (n as f64);
+    let dx: f64 = (b - a) / (n as f64);
     for i in 0..4 {
-        out[i] = dx * ((1..n).map(|k| f(a + k as f64 * dx)[i]).sum::<f64>() + (f(b) + f(a))[i] / 2.);
+        out[i] =
+            dx * ((1..n).map(|k| f(a + k as f64 * dx)[i]).sum::<f64>() + (f(b) + f(a))[i] / 2.);
     }
     out
 }
@@ -206,12 +236,11 @@ pub fn trans_mat_quat_dot(quat: &UnitQuaternion<f64>) -> SMatrix<f64, 4, 3> {
     let quat_vec = quat.vector();
 
     out.fixed_rows_mut(0).copy_from(&-quat_vec.transpose());
-    out.fixed_rows_mut::<3>(1).copy_from(&(quat.w * Matrix3::identity() + skew(&quat_vec.try_into().unwrap()) ));
+    out.fixed_rows_mut::<3>(1)
+        .copy_from(&(quat.w * Matrix3::identity() + skew(&quat_vec.try_into().unwrap())));
 
-    0.5 * out 
+    0.5 * out
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -224,9 +253,14 @@ mod tests {
         let fluid_density = 1000.0;
         let alpha = 0.5;
         let coeff_added = 1.0;
-        let fluid_added_mass = slendermasss(length, radius, fluid_density, Some(alpha), Some(coeff_added));
+        let fluid_added_mass = slendermasss(
+            length,
+            radius,
+            fluid_density,
+            Some(alpha),
+            Some(coeff_added),
+        );
         // println!("{}", fluid_added_mass);
-
     }
 
     #[test]
@@ -257,9 +291,13 @@ mod tests {
 
     #[test]
     fn test_transmat() {
-        let quat = UnitQuaternion::from_quaternion(Quaternion::new(0.533215448243828, 0.592817248117098, 0.083109566226999, 0.597780725760344));
+        let quat = UnitQuaternion::from_quaternion(Quaternion::new(
+            0.533215448243828,
+            0.592817248117098,
+            0.083109566226999,
+            0.597780725760344,
+        ));
         let res = trans_mat_quat_dot(&quat);
         println!("res: {}", res);
     }
-
 }
