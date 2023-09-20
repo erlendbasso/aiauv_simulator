@@ -113,7 +113,7 @@ impl ode_solvers::System<State> for AIAUV {
         let cross_flow_drag =
             &|_confs: &[Isometry3<f64>], nu: &[Vector6<f64>]| -> SMatrix<f64, 6, 9> {
                 let mut out = SMatrix::<f64, 6, 9>::zeros();
-                for i in 1..9 {
+                for i in 0..9 {
                     let drag = cross_flow_drag_rb(&nu[i], &nu[i], &self.config, i);
                     out.column_mut(i).copy_from(&drag);
                 }
