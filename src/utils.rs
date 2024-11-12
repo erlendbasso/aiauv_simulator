@@ -1,12 +1,12 @@
 #![allow(dead_code)]
+#![allow(non_snake_case)]
 
 extern crate nalgebra as na;
 use std::f64::consts::PI;
 
 use multibody_dynamics::math_functions::skew;
 use na::{
-    Isometry3, Matrix3, Matrix4, Matrix6, Quaternion, SMatrix, SVector, Translation3,
-    UnitQuaternion, Vector2, Vector3, Vector4, Vector6,
+    Matrix3, Matrix6, Quaternion, SMatrix, SVector, UnitQuaternion, Vector3, Vector4, Vector6,
 };
 
 use crate::Config;
@@ -17,7 +17,7 @@ pub fn slendermasss(
     radius: f64,
     fluid_density: f64,
     alpha: Option<f64>,
-    coeff_added: Option<f64>,
+    coeff_added: Option<f64>, // Added mass coefficient, rescales the entire added mass matrix
 ) -> Matrix6<f64> {
     let mut fluid_added_mass = Matrix6::zeros();
     match alpha {
@@ -38,10 +38,10 @@ pub fn slendermasss(
     fluid_added_mass[(1, 5)] = length.powi(2) / 2.0;
     fluid_added_mass[(5, 1)] = length.powi(2) / 2.0;
 
-    match coeff_added {
-        Some(coeff) => fluid_added_mass * fluid_density * PI * radius.powi(2) * coeff,
-        None => fluid_added_mass * fluid_density * PI * radius.powi(2) * 1.0,
-    }
+    // If no added mass coefficient is provided, set it to 1.0
+    let coefficient = coeff_added.unwrap_or(1.0);
+
+    fluid_added_mass * fluid_density * PI * radius.powi(2) * coefficient
 }
 
 pub fn comp_rb_mass_rotational(
@@ -74,9 +74,10 @@ pub fn comp_rb_mass_rotational(
 }
 
 /// Computes the thruster wrenches in the body frame of the thrusters parent link. The torque scaling factor [m] gives you the moment per thrust [N].
-pub fn compute_thruster_wrenches(
+pub fn compute_thruster_wrenches<const NUM_THRUSTERS: usize>(
     cfg: &Config,
-    thrust: &[f64],
+    // thrust: &[f64],
+    thrust: &SVector<f64, NUM_THRUSTERS>,
     torque_scaling_factor: Option<&Vec<f64>>,
 ) -> Vec<Vector6<f64>> {
     let num_bodies = cfg.joint_types.len();
@@ -148,7 +149,7 @@ pub fn cross_flow_drag_rb(
     drag_nonlin[0] = 0.5 * rho * r.powi(2) * PI * drag_surge * nu[0].abs() * mu[0];
     drag_nonlin[3] = 0.5 * rho * l * r.powi(4) * PI * drag_roll * nu[3].abs() * mu[3];
 
-    let b = 1.0;
+    let b = l;
     let a = 0.0;
     let n = 9;
 
@@ -166,7 +167,7 @@ pub fn cross_flow_drag_rb(
 
     let drag_2d_integral = trapz_vec(drag_2d, a, b, n);
 
-    let dragcoeff_nonlin = rho * r * l * drag_cross;
+    let dragcoeff_nonlin = rho * r * drag_cross;
 
     drag_nonlin[1] = dragcoeff_nonlin * drag_2d_integral[0];
     drag_nonlin[2] = dragcoeff_nonlin * drag_2d_integral[1];
@@ -237,7 +238,7 @@ pub fn trans_mat_quat_dot(quat: &UnitQuaternion<f64>) -> SMatrix<f64, 4, 3> {
 
     out.fixed_rows_mut(0).copy_from(&-quat_vec.transpose());
     out.fixed_rows_mut::<3>(1)
-        .copy_from(&(quat.w * Matrix3::identity() + skew(&quat_vec.try_into().unwrap())));
+        .copy_from(&(quat.w * Matrix3::identity() + skew(&quat_vec.into())));
 
     0.5 * out
 }
@@ -252,15 +253,16 @@ mod tests {
         let radius = 0.1;
         let fluid_density = 1000.0;
         let alpha = 0.5;
-        let coeff_added = 1.0;
+        let coeff_added = 2.0;
         let fluid_added_mass = slendermasss(
             length,
             radius,
             fluid_density,
             Some(alpha),
             Some(coeff_added),
+            // None,
         );
-        // println!("{}", fluid_added_mass);
+        println!("{}", fluid_added_mass);
     }
 
     #[test]

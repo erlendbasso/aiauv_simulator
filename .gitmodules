@@ -1,3 +1,0 @@
-[submodule "ode-solvers"]
-	path = ode-solvers
-	url = https://github.com/erlendbasso/ode-solvers.git
