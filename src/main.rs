@@ -1,15 +1,16 @@
+use core::num;
 use std::f64::consts::PI;
 
 use multibody_dynamics::multibody::JointType;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml::{self};
 
-use multibody_dynamics::{math_functions::*, multibody::MultiBody};
+use multibody_dynamics::multibody::MultiBody;
 
 extern crate nalgebra as na;
 use na::{
-    Isometry3, Matrix3, Matrix4, Matrix6, Quaternion, SMatrix, SVector, Translation3,
-    UnitQuaternion, UnitVector3, Vector2, Vector3, Vector4, Vector6,
+    stack, Isometry3, Matrix3, Matrix6, Quaternion, SMatrix, SVector, Translation3, UnitQuaternion,
+    Vector3, Vector4, Vector6,
 };
 
 mod utils;
@@ -17,7 +18,6 @@ use crate::utils::*;
 
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
 
-use ode_solvers::dop853::*;
 use ode_solvers::*;
 
 type State = SVector<f64, 29>;
@@ -64,7 +64,7 @@ pub struct AIAUV {
     config: Config,
 }
 
-impl ode_solvers::System<State> for AIAUV {
+impl ode_solvers::System<f64, State> for AIAUV {
     fn system(&self, t: Time, y: &State, dy: &mut State) {
         let quat = UnitQuaternion::from_quaternion(Quaternion::from_parts(
             y[3],
@@ -73,8 +73,8 @@ impl ode_solvers::System<State> for AIAUV {
         // implement your controller here
         let pos = y.fixed_rows::<3>(0);
 
-        let theta = y.fixed_rows::<8>(7).try_into().unwrap(); // joint angles
-        let zeta: SVector<f64, 14> = y.fixed_rows::<14>(15).try_into().unwrap(); // joint velocities
+        let theta = y.fixed_rows::<8>(7).into(); // joint angles
+        let zeta: SVector<f64, 14> = y.fixed_rows::<14>(15).into(); // joint velocities
         let theta_dot = zeta.fixed_rows::<8>(6); // joint velocities
         let lin_vel_current = Vector3::<f64>::zeros();
         let lin_accel_current = Vector3::<f64>::zeros();
@@ -95,11 +95,13 @@ impl ode_solvers::System<State> for AIAUV {
             theta_dotd[i] = PI / 4.0 * omega * f64::cos(omega * t - phase);
         }
 
-        let Kp = 10.0;
-        let Kd = 10.0;
+        let kp = 10.0;
+        let kd = 10.0;
 
-        let joint_torque = -Kp * (theta - theta_d) - Kd * (theta_dot - theta_dotd);
-        let thrust = vec![0.0; 7];
+        let joint_torque = -kp * (theta - theta_d) - kd * (theta_dot - theta_dotd);
+        // let num_thrusters = self.config.thruster_dirs.len();
+        // let thrust = vec![0.0; num_thrusters];
+        let thrust = SVector::<f64, 12>::repeat(0.0);
 
         let wrenches = compute_thruster_wrenches(&self.config, &thrust, None);
         eta.fixed_rows_mut::<8>(6).copy_from(&joint_torque);
@@ -113,8 +115,12 @@ impl ode_solvers::System<State> for AIAUV {
         let cross_flow_drag =
             &|_confs: &[Isometry3<f64>], nu: &[Vector6<f64>]| -> SMatrix<f64, 6, 9> {
                 let mut out = SMatrix::<f64, 6, 9>::zeros();
-                for i in 0..9 {
-                    let drag = cross_flow_drag_rb(&nu[i], &nu[i], &self.config, i);
+                // for i in 0..9 {
+                //     let drag = cross_flow_drag_rb(&nu[i], &nu[i], &self.config, i);
+                //     out.column_mut(i).copy_from(&drag);
+                // }
+                for (i, nu_i) in nu.iter().enumerate().take(9) {
+                    let drag = cross_flow_drag_rb(nu_i, nu_i, &self.config, i);
                     out.column_mut(i).copy_from(&drag);
                 }
                 out
@@ -162,7 +168,7 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
     let parent = cfg.parents.clone();
 
     let mass = if cfg.mass.is_empty() {
-        println!("Mass not specified – assuming neutrally buoyant. \nCalculating mass from length, radius and fluid density.");
+        println!("Mass not specified – assuming a neutrally buoyant vehicle. \nCalculating mass from length, radius and fluid density.");
         let mut mass = vec![0.0; num_bodies];
         for (i, mass_iter) in mass.iter_mut().enumerate().take(num_bodies) {
             let volume = cfg.length[i] * PI * cfg.radius[i].powi(2);
@@ -174,7 +180,7 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
     };
 
     for i in 0..num_bodies {
-        let pos_offset: Translation3<f64> = cfg.pos_offsets[i].try_into().unwrap();
+        let pos_offset: Translation3<f64> = cfg.pos_offsets[i].into();
         let roll_pitch_yaw_offsets = cfg.roll_pitch_yaw_offsets[i];
         offset_matrices[i] = Isometry3::from_parts(
             pos_offset,
@@ -217,12 +223,14 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
         }
 
         rb_mass_rotational[i] =
-            comp_rb_mass_rotational(cfg.pos_offsets[i], cfg.radius[i], cfg.length[i], mass[i]);
+            comp_rb_mass_rotational(cfg.pos_com[i], cfg.radius[i], cfg.length[i], mass[i]);
 
         volume[i] = cfg.length[i] * PI * cfg.radius[i].powi(2);
     }
 
-    println!("Added mass: {}", added_mass[0]);
+    // println!("Volume: {}", volume[5]);
+    // println!("Added mass: {}", added_mass[5]);
+    // println!("rb mass: {}", rb_mass_rotational[5]);
 
     MultiBody::new(
         offset_matrices,
@@ -242,7 +250,7 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let f = std::fs::File::open("aiauv_config.yml").expect("Could not open file.");
+    let f = std::fs::File::open("eely_config.yml").expect("Could not open file.");
     let cfg: Config = serde_yaml::from_reader(f).expect("Could not parse file.");
 
     let multibody = setup_aiauv(&cfg);
@@ -261,37 +269,103 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PI / 4.0,
         PI / 2.5,
     ]);
-    let zeta = SVector::<f64, 14>::repeat(1.0);
+    // let zeta = SVector::<f64, 14>::repeat(1.0);
 
-    let system = AIAUV {
-        multibody,
-        config: cfg.clone(),
+    // TEST
+    let nu = Vector6::<f64>::new(0.1339, 0.2854, 0.0305, 0.5841, 0.1752, 0.0746);
+    let theta_dot = SVector::<f64, 8>::from_column_slice(&[
+        0.1166, 0.9438, 0.3364, 0.6646, 0.5577, 0.4213, 0.0738, 0.6351,
+    ]);
+    let zeta = stack![nu; theta_dot];
+
+    let lin_vel_current = Vector3::<f64>::zeros();
+    let lin_accel_current = Vector3::<f64>::zeros();
+    let pos = Vector3::new(0.0622, 0.4052, 0.1091);
+    // let quat = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+    let quat = UnitQuaternion::from_quaternion(Quaternion::new(0.8566, 0.4131, 0.0945, 0.2944));
+    let theta = SVector::<f64, 8>::from_vec(vec![
+        0.2870, 0.2197, 0.1250, 0.8382, 0.5592, 0.2592, 0.8849, 0.9270,
+    ]);
+    println!("theta: {}", theta);
+
+    let configuration_base = Isometry3::from_parts(Translation3::new(pos[0], pos[1], pos[2]), quat);
+    let conf = multibody.minimal_to_homogenous_configuration(&configuration_base, &theta);
+
+    let cross_flow_drag = &|_confs: &[Isometry3<f64>], nu: &[Vector6<f64>]| -> SMatrix<f64, 6, 9> {
+        let mut out = SMatrix::<f64, 6, 9>::zeros();
+        for (i, nu_i) in nu.iter().enumerate().take(9) {
+            let drag = cross_flow_drag_rb(nu_i, nu_i, &cfg, i);
+            out.column_mut(i).copy_from(&drag);
+        }
+        out
     };
 
-    let mut y0 = State::zeros();
-    y0.fixed_rows_mut::<4>(3).copy_from(&Vector4::x());
-    y0.fixed_rows_mut::<8>(7).copy_from(&joint_angles);
-    y0.fixed_rows_mut::<14>(15).copy_from(&zeta);
+    // println!("drag: {}", cross_flow_drag(&conf, &[nu]));
 
-    // let y0 = State::zeros();
+    // let num_thrusters = cfg.thruster_dirs.len();
+    // let thrust = vec![0.0; num_thrusters];
+    let thrust = SVector::<f64, 12>::from_vec(vec![
+        0.7456, 0.1187, 0.4123, 0.8181, 0.7854, 0.1217, 0.5034, 0.0303, 0.8609, 0.6282, 0.7324,
+        0.1752,
+    ]);
 
-    println!("y0: {}", y0);
-    // Create a stepper and run the integration.
-    let mut stepper = Dopri5::new(system, 0.0, cfg.sim_time, 0.01, y0, 1.0e-4, 1.0e-4);
-    let res = stepper.integrate();
+    // let wrenches = compute_thruster_wrenches(&cfg, &thrust, None);
+    let wrenches = vec![SVector::<f64, 6>::zeros(); 9];
+    // let joint_torque = SVector::<f64, 8>::from_vec(vec![
+    //     0.5275, 0.0887, 0.2674, 0.6599, 0.6552, 0.4395, 0.9136, 0.7634,
+    // ]);
+    let joint_torque = SVector::<f64, 8>::zeros();
+    let eta = stack![Vector6::zeros(); joint_torque];
 
-    println!("Time elapsed: {} ms", now.elapsed().as_millis());
+    let accel = multibody.forward_dynamics_ab(
+        &conf,
+        &zeta,
+        cross_flow_drag,
+        &wrenches,
+        &eta,
+        &lin_vel_current,
+        &lin_accel_current,
+    );
+    println!("Acceleration: {}", accel);
 
-    match res {
-        Ok(stats) => {
-            println!("{}", stats);
-            let path = Path::new("./aiauv_dop853.dat");
-            save(stepper.x_out(), stepper.y_out(), path);
-            println!("Results saved in: {:?}", path);
-            println!("{}", stepper.y_out()[stepper.y_out().len() - 1]);
-        }
-        Err(e) => println!("An error occured: {}", e),
-    }
+    // println!(
+    //     "Hydrostatic force body 1: {}",
+    //     multibody.compute_hydrostatic_force(&quat, &lin_accel_current, 0)
+    // );
+
+    // println!("quat euler: {:?}", quat.euler_angles().0 * 180.0 / PI);
+
+    // END TEST
+
+    // let system = AIAUV {
+    //     multibody,
+    //     config: cfg.clone(),
+    // };
+
+    // let mut y0 = State::zeros();
+    // y0.fixed_rows_mut::<4>(3).copy_from(&Vector4::x());
+    // y0.fixed_rows_mut::<8>(7).copy_from(&joint_angles);
+    // y0.fixed_rows_mut::<14>(15).copy_from(&zeta);
+
+    // // let y0 = State::zeros();
+
+    // println!("y0: {}", y0);
+    // // Create a stepper and run the integration.
+    // let mut stepper = Dopri5::new(system, 0.0, cfg.sim_time, 0.01, y0, 1.0e-4, 1.0e-4);
+    // let res = stepper.integrate();
+
+    // println!("Time elapsed: {} ms", now.elapsed().as_millis());
+
+    // match res {
+    //     Ok(stats) => {
+    //         println!("{}", stats);
+    //         let path = Path::new("./aiauv_dop853.dat");
+    //         save(stepper.x_out(), stepper.y_out(), path);
+    //         println!("Results saved in: {:?}", path);
+    //         println!("{}", stepper.y_out()[stepper.y_out().len() - 1]);
+    //     }
+    //     Err(e) => println!("An error occured: {}", e),
+    // }
 
     Ok(())
 }
