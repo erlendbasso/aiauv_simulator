@@ -44,8 +44,8 @@ pub fn slendermasss(
     fluid_added_mass * fluid_density * PI * radius.powi(2) * coefficient
 }
 
-pub fn comp_rb_mass_rotational(
-    r_cog: Vector3<f64>,
+pub fn comp_rb_inertia_cylinder(
+    r_cog: &Vector3<f64>,
     radius: f64,
     length: f64,
     mass: f64,
@@ -71,6 +71,21 @@ pub fn comp_rb_mass_rotational(
     I_r[(2, 0)] = -m_r * 0.5 * length * d;
 
     I_r + I_c
+}
+
+pub fn comp_rb_inertia_rectangular_cuboid(
+    length: &Vector3<f64>,
+    pos_cog: &Vector3<f64>,
+    mass: f64,
+) -> Matrix3<f64> {
+    let inertia_mat = 1.0 / 12.0
+        * mass
+        * Matrix3::from_diagonal(&Vector3::new(
+            length[1].powi(2) + length[2].powi(2),
+            length[0].powi(2) + length[2].powi(2),
+            length[0].powi(2) + length[1].powi(2),
+        ));
+    inertia_mat - skew(pos_cog) * skew(pos_cog) * mass
 }
 
 /// Computes the thruster wrenches in the body frame of the thrusters parent link. The torque scaling factor [m] gives you the moment per thrust [N].
@@ -125,6 +140,11 @@ pub fn comp_tcm<const NUM_DOFS: usize, const NUM_THRUSTERS: usize>(
         tcm.fixed_columns_mut(i).copy_from(&col);
     }
     tcm
+}
+
+/// Computes the drag forces and torques acting on a box-shaped rigid body, e.g. a BlueROV.
+pub fn box_shaped_drag_rb(nu: &Vector6<f64>, mu: &Vector6<f64>, cfg: &Config) -> Vector6<f64> {
+    Vector6::zeros()
 }
 
 pub fn cross_flow_drag_rb(

@@ -1,0 +1,90 @@
+define: &PI 3.14159265358979323846
+define: &PI_HALF 1.57079632679489661923
+define: &PI_HALF_NEG -1.57079632679489661923
+define: &THETA_C 0.2686381238870493
+define: &THETA_C_MINUS_PI_HALF -1.30215820291
+
+sim_time: 100
+gravity: [0.0, 0.0, 9.7975]
+# nonlinear drag coeffs in surge, roll, nonlinear crossflow drag coeff, linear drag coefficient, scaling factor in surge, scaling factor in roll
+dragcoeffs: 
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+  - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
+joint_types:
+  - SixDOF
+  - Revolute
+  - Revolute
+  - Revolute
+  - Revolute
+mass: [11.0, 0.234, 0.161, 0.38, 0.142, 0.355]
+# Length in the x, y and z direction of the BlueROV
+lengths_bluerov: [1.0, 1.0, 1.0]
+# Radius of the 5 links
+radius: [0.1, 0.1, 0.1, 0.1, 0.1]
+length: [&LL1 229.9, &LL2 0.084, &LL3 1.2760, &LL4 0.084, &LL5 1.618]
+fluid_density: 1026.0
+parents: [0, 1, 2, 3, 4]
+# Everything in millimeters
+# In frame i
+pos_com:
+  - [0.0, 0.0, 0.00]
+  # - [-0.052425, -0.007120, -0.000037]
+  # - [-52.425, -7.120, -0.037]
+  - [7.746, 0.112, 25.038]
+  - [73.563, -0.091, -0.734]
+  - [11.188, -16.66, 0.148]
+  - [-0.03, -1.482, -100.881]
+# Everything in millimeters
+pos_cob:
+  - [0.0, 0.0, 0.0]
+  # - [-53.0, -3.0, -1.0]
+  - [2.0, -4.0, 31.0]
+  - [76.0, 0.0, -1.0]
+  - [2.0, -4.0, 29.0]
+  - [0.0, 0.0, -97.0]
+# translations from frame i-1 to frame i (in frame i-1)
+# Note that the offsets corresponding to SixDOF joints can be set to zero
+# Everything in millimeters
+pos_offsets:
+  - [0.0, 0.0, 0.0]
+  - [304.2, -146.8, -94.2] # bluerov origin to first joint
+  - [-20.0, 0.0, 46.2]
+  - [145.3, 0.0, 40.0]
+  - [5.3083730635641775, -19.282665153396877, 0.0]
+# [roll (phi), pitch(theta), yaw(psi)] representing R=Rz(psi)*Ry(theta)*Rx(phi)
+# R rotates a vector x in frame i into frame i-1
+# equivalently, rotates frame i-1 into frame i
+roll_pitch_yaw_offsets: # joints axis rotation sequence (relative to body frame)
+# z-y-z-y-z-y-z-y
+  - [0.0, 0.0, 0.0]
+  - [0.0, 0.0, 0.0]           
+  - [*PI_HALF, 0.0, *PI]  
+  - [*PI, 0.0, *THETA_C]      
+  - [*PI_HALF_NEG, 0.0, *THETA_C_MINUS_PI_HALF]
+# 
+thruster_pos_offsets:
+  - [ 0.156,  0.111, 0.85]
+  - [ 0.156, -0.111, 0.85]
+  - [-0.156,  0.111, 0.85]
+  - [-0.156, -0.111, 0.85]
+  - [ 0.120,  0.218, 0.0]
+  - [ 0.120, -0.218, 0.0]
+  - [-0.120,  0.218, 0.0]
+  - [-0.120, -0.218, 0.0]
+# The direction of the thruster force in link frame
+thruster_dirs:
+  - [0.86602540378, -0.5, 0.0]
+  - [0.86602540378,  0.5, 0.0]
+  - [0.86602540378,  0.5, 0.0] # counter-rotating propeller
+  - [0.86602540378, -0.5, 0.0] # counter-rotating propeller
+  - [0.0,  0.0, -1.0]
+  - [0.0,  0.0,  1.0] 
+  - [0.0,  0.0,  1.0] 
+  - [0.0,  0.0, -1.0]
+thruster_parents: [1, 1, 1, 1, 1, 1, 1, 1]
+# thruster_parents: [2, 2, 3, 3, 3, 4, 4]
+added_mass_coeffs: []
+added_alpha: [0.2, 0.2, 0.2, 0.2, 0.2]

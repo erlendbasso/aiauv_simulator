@@ -16,6 +16,8 @@ use na::{
 mod utils;
 use crate::utils::*;
 
+mod bluerov_reach;
+
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
 
 use ode_solvers::*;
@@ -223,7 +225,7 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
         }
 
         rb_mass_rotational[i] =
-            comp_rb_mass_rotational(cfg.pos_com[i], cfg.radius[i], cfg.length[i], mass[i]);
+            comp_rb_inertia_cylinder(&cfg.pos_com[i], cfg.radius[i], cfg.length[i], mass[i]);
 
         volume[i] = cfg.length[i] * PI * cfg.radius[i].powi(2);
     }
