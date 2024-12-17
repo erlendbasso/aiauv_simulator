@@ -18,15 +18,23 @@ dragcoeffs:
   - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
   - [0.2, 0.1, 0.5, 0.1, 0.1, 0.1]
 joint_types: 
-  - SixDOF
-  - Revolute
-  - Revolute
-  - Revolute
-  - Revolute
-  - Revolute
-  - Revolute
-  - Revolute
-  - Revolute
+  - type: SixDOF
+  - type: Revolute
+    axis: Z
+  - type: Revolute
+    axis: Z
+  - type: Revolute
+    axis: Z
+  - type: Revolute
+    axis: Z
+  - type: Revolute
+    axis: Z
+  - type: Revolute
+    axis: Z
+  - type: Revolute
+    axis: Z
+  - type: Revolute
+    axis: Z
 # mass: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 mass: []
 # radius: [0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085]

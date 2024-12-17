@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-multibody_dynamics = "0.2"
+multibody_dynamics = "0.2.1"
 serde = {version = "1.0", features = ["derive"]}
 serde_yaml = "0.9"
 nalgebra = {version ="0.33", features = ["serde-serialize"]}
 # ode_solvers = {path = "ode-solvers"}
-ode_solvers = "0.4.0"
+ode_solvers = "0.5"
 # csv = "1"
