@@ -9,7 +9,8 @@ use na::{
     Matrix3, Matrix6, Quaternion, SMatrix, SVector, UnitQuaternion, Vector3, Vector4, Vector6,
 };
 
-use crate::Config;
+// use crate::Config;
+use crate::bluerov_reach::BlueROVReachConfig;
 
 /// Computes the added mass matrix of a slender body.
 pub fn slendermasss(
@@ -88,47 +89,16 @@ pub fn comp_rb_inertia_rectangular_cuboid(
     inertia_mat - skew(pos_cog) * skew(pos_cog) * mass
 }
 
-/// Computes the thruster wrenches in the body frame of the thrusters parent link. The torque scaling factor [m] gives you the moment per thrust [N].
-pub fn compute_thruster_wrenches<const NUM_THRUSTERS: usize>(
-    cfg: &Config,
-    // thrust: &[f64],
-    thrust: &SVector<f64, NUM_THRUSTERS>,
-    torque_scaling_factor: Option<&Vec<f64>>,
-) -> Vec<Vector6<f64>> {
-    let num_bodies = cfg.joint_types.len();
-    let num_thrusters = cfg.thruster_dirs.len();
-    let mut thruster_wrenches = vec![Vector6::zeros(); num_bodies];
-    let lambda = |x: usize| -> i32 { cfg.thruster_parents[x] as i32 - 1 };
-
-    let mut force: Vector3<f64>;
-    let mut torque: Vector3<f64>;
-    let mut wrench: Vector6<f64>;
-
-    for i in 0..num_thrusters {
-        force = cfg.thruster_dirs[i] * thrust[i];
-        let torque_scaling = match torque_scaling_factor {
-            Some(t) => t[i],
-            None => 0.0,
-        };
-        torque = cfg.thruster_pos_offsets[i].cross(&force) + torque_scaling * force;
-        wrench = Vector6::new(
-            force[0], force[1], force[2], torque[0], torque[1], torque[2],
-        );
-
-        thruster_wrenches[lambda(i) as usize] += wrench;
-    }
-    thruster_wrenches
-}
-
 /// Computes the thruster configuration matrix T: \tau = T f, where f contains thruster forces and \tau is the resulting generalized forces.
 pub fn comp_tcm<const NUM_DOFS: usize, const NUM_THRUSTERS: usize>(
-    cfg: &Config,
+    cfg: &BlueROVReachConfig,
     jacs: &[SMatrix<f64, 6, NUM_DOFS>],
 ) -> SMatrix<f64, NUM_DOFS, NUM_THRUSTERS> {
     let num_thrusters = cfg.thruster_dirs.len();
     let mut tcm = SMatrix::<f64, NUM_DOFS, NUM_THRUSTERS>::zeros();
 
-    let lambda = |x: usize| -> i32 { cfg.thruster_parents[x] as i32 - 1 };
+    // let lambda = |x: usize| -> i32 { cfg.thruster_parents[x] as i32 - 1 };
+    let lambda = |_x: usize| -> i32 { 0 };
 
     for i in 0..num_thrusters {
         let mut B_i = Vector6::<f64>::zeros();
@@ -143,66 +113,12 @@ pub fn comp_tcm<const NUM_DOFS: usize, const NUM_THRUSTERS: usize>(
 }
 
 /// Computes the drag forces and torques acting on a box-shaped rigid body, e.g. a BlueROV.
-pub fn box_shaped_drag_rb(nu: &Vector6<f64>, mu: &Vector6<f64>, cfg: &Config) -> Vector6<f64> {
-    Vector6::zeros()
-}
-
-pub fn cross_flow_drag_rb(
+pub fn box_shaped_drag_rb(
     nu: &Vector6<f64>,
     mu: &Vector6<f64>,
-    cfg: &Config,
-    i: usize,
+    cfg: &BlueROVReachConfig,
 ) -> Vector6<f64> {
-    let rho = cfg.fluid_density;
-    let r = cfg.radius[i];
-    let l = cfg.length[i];
-    let drag_surge = cfg.dragcoeffs[i][0];
-    let drag_roll = cfg.dragcoeffs[i][1];
-    let drag_cross = cfg.dragcoeffs[i][2];
-    let drag_linear = cfg.dragcoeffs[i][3];
-    let scaling_factor_surge = cfg.dragcoeffs[i][4];
-    let scaling_factor_roll = cfg.dragcoeffs[i][5];
-
-    let mut drag_nonlin = Vector6::<f64>::zeros();
-    let mut drag_lin = Vector6::<f64>::zeros();
-
-    drag_nonlin[0] = 0.5 * rho * r.powi(2) * PI * drag_surge * nu[0].abs() * mu[0];
-    drag_nonlin[3] = 0.5 * rho * l * r.powi(4) * PI * drag_roll * nu[3].abs() * mu[3];
-
-    let b = l;
-    let a = 0.0;
-    let n = 9;
-
-    let drag_2d = &|x: f64| -> Vector4<f64> {
-        let mut out = Vector4::<f64>::zeros();
-        let sqrtx = ((nu[1] + x * nu[5]).powi(2) + (nu[2] - x * nu[4]).powi(2)).sqrt();
-
-        out[0] = sqrtx * (mu[1] + x * mu[5]);
-        out[1] = sqrtx * (mu[2] - x * mu[4]);
-        out[2] = sqrtx * (-mu[2] * x + mu[4] * x.powi(2));
-        out[3] = sqrtx * (mu[1] * x + mu[5] * x.powi(2));
-
-        out
-    };
-
-    let drag_2d_integral = trapz_vec(drag_2d, a, b, n);
-
-    let dragcoeff_nonlin = rho * r * drag_cross;
-
-    drag_nonlin[1] = dragcoeff_nonlin * drag_2d_integral[0];
-    drag_nonlin[2] = dragcoeff_nonlin * drag_2d_integral[1];
-    drag_nonlin[4] = dragcoeff_nonlin * drag_2d_integral[2];
-    drag_nonlin[5] = dragcoeff_nonlin * drag_2d_integral[3];
-
-    let dragcoeff_lin = rho * r * l * drag_linear;
-    drag_lin[0] = dragcoeff_lin * scaling_factor_surge * mu[0];
-    drag_lin[1] = dragcoeff_lin * (mu[1] + 0.5 * l * mu[5]);
-    drag_lin[2] = dragcoeff_lin * (mu[2] - 0.5 * l * mu[4]);
-    drag_lin[3] = dragcoeff_lin * scaling_factor_roll * r.powi(2) * mu[3];
-    drag_lin[4] = dragcoeff_lin * (-0.5 * l * mu[2] + l.powi(2) * mu[4] / 3.0);
-    drag_lin[5] = dragcoeff_lin * (0.5 * l * mu[1] + l.powi(2) * mu[5] / 3.0);
-
-    -drag_lin - drag_nonlin
+    Vector6::zeros()
 }
 
 pub fn discrete_quat_update(

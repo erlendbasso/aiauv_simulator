@@ -24,7 +24,7 @@ mass: [11.0, 0.234, 0.161, 0.38, 0.142, 0.355]
 lengths_bluerov: [1.0, 1.0, 1.0]
 # Radius of the 5 links
 radius: [0.1, 0.1, 0.1, 0.1, 0.1]
-length: [&LL1 229.9, &LL2 0.084, &LL3 1.2760, &LL4 0.084, &LL5 1.618]
+link_lengths: [&LL1 229.9, &LL2 0.084, &LL3 1.2760, &LL4 0.084, &LL5 1.618]
 fluid_density: 1026.0
 parents: [0, 1, 2, 3, 4]
 # Everything in millimeters

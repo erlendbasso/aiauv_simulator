@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 
-use multibody_dynamics::multibody::JointType;
 use multibody_dynamics::multibody::MultiBody;
+use multibody_dynamics::multibody::{Axis, JointType};
 
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml::{self};
@@ -12,12 +12,41 @@ use na::{Isometry3, Matrix3, Matrix6, Translation3, UnitQuaternion, Vector3, Vec
 // use crate::utils::slendermass;
 use crate::utils::*;
 
-#[derive(Serialize, Deserialize)]
-#[serde(remote = "JointType")]
-enum JointTypeDef {
-    Revolute,
-    Prismatic,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+enum SerdeAxis {
+    X,
+    Y,
+    Z,
+}
+
+// Add conversion between SerdeAxis and multibody_dynamics::multibody::Axis
+impl From<SerdeAxis> for Axis {
+    fn from(axis: SerdeAxis) -> Self {
+        match axis {
+            SerdeAxis::X => Axis::X,
+            SerdeAxis::Y => Axis::Y,
+            SerdeAxis::Z => Axis::Z,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", content = "axis")]
+enum SerdeJointType {
+    Revolute(SerdeAxis),
+    Prismatic(SerdeAxis),
+    #[serde(rename = "SixDOF")]
     SixDOF,
+}
+
+impl From<SerdeJointType> for JointType {
+    fn from(joint_type: SerdeJointType) -> Self {
+        match joint_type {
+            SerdeJointType::Revolute(axis) => JointType::Revolute(axis.into()),
+            SerdeJointType::Prismatic(axis) => JointType::Prismatic(axis.into()),
+            SerdeJointType::SixDOF => JointType::SixDOF,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -36,8 +65,9 @@ pub struct BlueROVReachConfig {
     pos_cob: Vec<Vector3<f64>>,
     pos_offsets: Vec<Vector3<f64>>,
     roll_pitch_yaw_offsets: Vec<Vector3<f64>>,
-    thruster_pos_offsets: Vec<Vector3<f64>>,
-    thruster_dirs: Vec<Vector3<f64>>,
+    pub thruster_pos_offsets: Vec<Vector3<f64>>,
+    pub thruster_dirs: Vec<Vector3<f64>>,
+    pub thruster_parents: Vec<u16>,
     #[serde(default)]
     added_mass_coeffs: Vec<Option<f64>>,
     added_alpha: Vec<f64>,
@@ -54,10 +84,10 @@ pub fn build_bluerov_reach(cfg: &BlueROVReachConfig) -> MultiBody<5, 10> {
 
     let joint_types = vec![
         JointType::SixDOF,
-        JointType::Revolute,
-        JointType::Revolute,
-        JointType::Revolute,
-        JointType::Revolute,
+        JointType::Revolute(Axis::Z),
+        JointType::Revolute(Axis::Z),
+        JointType::Revolute(Axis::Z),
+        JointType::Revolute(Axis::Z),
     ];
     let parent = vec![0, 1, 2, 3, 4];
 
