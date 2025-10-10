@@ -20,7 +20,13 @@ use ode_solvers::*;
 
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
 
-type State = SVector<f64, 43>;
+// Configuration sizes for EELY500 (4 revolute joints)
+const NJOINTS: usize = 4;
+const NBODIES: usize = NJOINTS + 1; // base + joints
+const NDOFS: usize = 6 + NJOINTS; // 6-DoF base + joint DoFs
+const NTHRUSTERS: usize = 8; // EELY500 has 8 thrusters
+
+type State = SVector<f64, { 3 + 4 + NJOINTS + NDOFS + 6 + NJOINTS }>; // pos + quat + theta + zeta + z_b + z_j
 type Time = f64;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -89,7 +95,7 @@ pub struct Config {
 }
 
 pub struct AIAUV {
-    multibody: MultiBody<9, 14>,
+    multibody: MultiBody<NBODIES, NDOFS>,
     config: Config,
 }
 
@@ -102,13 +108,13 @@ impl ode_solvers::System<f64, State> for AIAUV {
         // implement your controller here
         let pos = y.fixed_rows::<3>(0);
 
-        let theta = y.fixed_rows::<8>(7).into(); // joint angles
-        let zeta: SVector<f64, 14> = y.fixed_rows::<14>(15).into(); // joint velocities
-        let z_b = y.fixed_rows::<6>(29); // integral state
-        let z_j = y.fixed_rows::<8>(35); // integral theta state
+        let theta = y.fixed_rows::<NJOINTS>(7).into(); // joint angles
+        let zeta: SVector<f64, NDOFS> = y.fixed_rows::<NDOFS>(7 + NJOINTS).into(); // base + joint velocities
+        let z_b = y.fixed_rows::<6>(7 + NJOINTS + NDOFS); // integral state
+        let z_j = y.fixed_rows::<NJOINTS>(7 + NJOINTS + NDOFS + 6); // integral theta state
 
         let nu_b = zeta.fixed_rows::<6>(0); // base velocities
-        let theta_dot = zeta.fixed_rows::<8>(6); // joint velocities
+        let theta_dot = zeta.fixed_rows::<NJOINTS>(6); // joint velocities
         let lin_vel_current = Vector3::<f64>::zeros();
         let lin_accel_current = Vector3::<f64>::zeros();
         // let eta: SVector<f64, 14>;
@@ -124,24 +130,13 @@ impl ode_solvers::System<f64, State> for AIAUV {
         let k_i_b: Vector6<f64> = 0.01 * Vector6::new(10.0, 10.0, 10.0, 10.0, 20.0, 20.0);
         let k_d_b: Vector6<f64> = 0.2 * Vector6::new(100.0, 100.0, 100.0, 50.0, 150.0, 150.0);
 
-        let k_p_j: SVector<f64, 8> =
-            0.5 * vector![250.0, 250.0, 500.0, 500.0, 500.0, 500.0, 250.0, 250.0];
-        let k_i_j: SVector<f64, 8> = 0.01 * vector![10.0, 10.0, 20.0, 20.0, 20.0, 20.0, 10.0, 10.0];
-        let k_d_j: SVector<f64, 8> =
-            0.1 * vector![100.0, 100.0, 200.0, 200.0, 200.0, 100.0, 100.0, 100.0];
+        let k_p_j: SVector<f64, NJOINTS> = 0.5 * vector![250.0, 250.0, 500.0, 500.0];
+        let k_i_j: SVector<f64, NJOINTS> = 0.01 * vector![10.0, 10.0, 20.0, 20.0];
+        let k_d_j: SVector<f64, NJOINTS> = 0.1 * vector![100.0, 100.0, 200.0, 200.0];
 
-        let theta_d = SVector::<f64, 8>::from_vec(vec![
-            PI / 4.0,
-            0.0,
-            PI / 4.0,
-            0.0,
-            PI / 4.0,
-            0.0,
-            PI / 4.0,
-            0.0,
-        ]);
+        let theta_d = SVector::<f64, NJOINTS>::from_vec(vec![PI / 4.0, 0.0, PI / 4.0, 0.0]);
 
-        let theta_dotd = SVector::<f64, 8>::zeros();
+        let theta_dotd = SVector::<f64, NJOINTS>::zeros();
 
         let config_err = stack![pos_e; quat_e.vector()];
 
@@ -156,11 +151,11 @@ impl ode_solvers::System<f64, State> for AIAUV {
         let theta_e = theta - theta_d;
         let theta_e_dot = theta_dot - theta_dotd;
 
-        let mut f_pid_joint_torque: SVector<f64, 8> = -k_p_j.component_mul(&theta_e)
+        let mut f_pid_joint_torque: SVector<f64, NJOINTS> = -k_p_j.component_mul(&theta_e)
             - k_i_j.component_mul(&z_j)
             - k_d_j.component_mul(&theta_e_dot);
 
-        let f_pid_j_max = vector![80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0];
+        let f_pid_j_max = vector![80.0, 80.0, 80.0, 80.0];
 
         f_pid_joint_torque =
             f_pid_joint_torque.zip_map(&f_pid_j_max, |val, max| val.clamp(-max, max));
@@ -177,14 +172,14 @@ impl ode_solvers::System<f64, State> for AIAUV {
             .minimal_to_homogenous_configuration(&configuration_base, &theta);
 
         let jacs = self.multibody.compute_jacobians(&conf);
-        let tcm = comp_tcm::<14, 12>(&self.config, &jacs);
+        let tcm = comp_tcm::<NDOFS, NTHRUSTERS>(&self.config, &jacs);
         let tcm_tot = stack![
             tcm,
-            stack![SMatrix::<f64, 6, 8>::zeros();
-        SMatrix::<f64, 8, 8>::identity()]
+            stack![SMatrix::<f64, 6, NJOINTS>::zeros();
+        SMatrix::<f64, NJOINTS, NJOINTS>::identity()]
         ];
 
-        let f_pid: SVector<f64, 14> = stack![f_pid_b; f_pid_joint_torque];
+        let f_pid: SVector<f64, NDOFS> = stack![f_pid_b; f_pid_joint_torque];
         let tcm_pinv = tcm_tot.transpose() * (tcm_tot * tcm_tot.transpose()).try_inverse().unwrap();
         let u = tcm_pinv * f_pid;
 
@@ -193,13 +188,13 @@ impl ode_solvers::System<f64, State> for AIAUV {
         // eta = f_pid;
 
         let cross_flow_drag =
-            &|_confs: &[Isometry3<f64>], nu: &[Vector6<f64>]| -> SMatrix<f64, 6, 9> {
-                let mut out = SMatrix::<f64, 6, 9>::zeros();
+            &|_confs: &[Isometry3<f64>], nu: &[Vector6<f64>]| -> SMatrix<f64, 6, NBODIES> {
+                let mut out = SMatrix::<f64, 6, NBODIES>::zeros();
                 // for i in 0..9 {
                 //     let drag = cross_flow_drag_rb(&nu[i], &nu[i], &self.config, i);
                 //     out.column_mut(i).copy_from(&drag);
                 // }
-                for (i, nu_i) in nu.iter().enumerate().take(9) {
+                for (i, nu_i) in nu.iter().enumerate().take(NBODIES) {
                     let drag = cross_flow_drag_rb(nu_i, nu_i, &self.config, i);
                     out.column_mut(i).copy_from(&drag);
                 }
@@ -213,7 +208,7 @@ impl ode_solvers::System<f64, State> for AIAUV {
             &zeta,
             cross_flow_drag,
             // &wrenches,
-            &vec![Vector6::<f64>::zeros(); 9],
+            &vec![Vector6::<f64>::zeros(); NBODIES],
             &eta,
             &lin_vel_current,
             &lin_accel_current,
@@ -224,10 +219,10 @@ impl ode_solvers::System<f64, State> for AIAUV {
 
         dy.fixed_rows_mut::<3>(0).copy_from(&pos_dot);
         dy.fixed_rows_mut::<4>(3).copy_from(&quat_dot);
-        dy.fixed_rows_mut::<8>(7).copy_from(&theta_dot);
-        dy.fixed_rows_mut::<14>(15).copy_from(&accel);
-        dy.fixed_rows_mut::<6>(29).copy_from(&config_err);
-        dy.fixed_rows_mut::<8>(35).copy_from(&theta_e);
+        dy.fixed_rows_mut::<NJOINTS>(7).copy_from(&theta_dot);
+        dy.fixed_rows_mut::<NDOFS>(7 + NJOINTS).copy_from(&accel);
+        dy.fixed_rows_mut::<6>(7 + NJOINTS + NDOFS).copy_from(&config_err);
+        dy.fixed_rows_mut::<NJOINTS>(7 + NJOINTS + NDOFS + 6).copy_from(&theta_e);
     }
 }
 
@@ -239,7 +234,7 @@ where
     Ok(v.into_iter().map(|j| j.into()).collect())
 }
 
-fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
+fn setup_aiauv(cfg: &Config) -> MultiBody<NBODIES, NDOFS> {
     let num_bodies = cfg.joint_types.len();
     let mut offset_matrices = vec![Isometry3::<f64>::identity(); num_bodies];
     let mut added_mass = vec![Matrix6::<f64>::zeros(); num_bodies];
@@ -263,7 +258,17 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
 
     for i in 0..num_bodies {
         let pos_offset: Translation3<f64> = cfg.pos_offsets[i].into();
-        let roll_pitch_yaw_offsets = cfg.roll_pitch_yaw_offsets[i];
+        let roll_pitch_yaw_offsets = if i < cfg.roll_pitch_yaw_offsets.len() {
+            cfg.roll_pitch_yaw_offsets[i]
+        } else {
+            eprintln!(
+                "Warning: roll_pitch_yaw_offsets missing for body {} (have {} entries for {} bodies); defaulting to [0, 0, 0]",
+                i,
+                cfg.roll_pitch_yaw_offsets.len(),
+                num_bodies
+            );
+            Vector3::zeros()
+        };
         offset_matrices[i] = Isometry3::from_parts(
             pos_offset,
             UnitQuaternion::from_euler_angles(
@@ -328,7 +333,7 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let f = std::fs::File::open("eely_config.yml").expect("Could not open file.");
+    let f = std::fs::File::open("eely500_config.yml").expect("Could not open file.");
     let cfg: Config = serde_yaml::from_reader(f).expect("Could not parse file.");
 
     let multibody = setup_aiauv(&cfg);
@@ -337,8 +342,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Instant;
     let now = Instant::now();
 
-    let joint_angles = vector![PI / 4.0, 0.0, PI / 4.0, 0.0, PI / 4.0, 0.0, PI / 4.0, 0.0];
-    let zeta = SVector::<f64, 14>::repeat(1.0);
+    let joint_angles = vector![PI / 4.0, 0.0, PI / 4.0, 0.0];
+    let zeta = SVector::<f64, NDOFS>::repeat(1.0);
 
     let system = AIAUV {
         multibody,
@@ -347,8 +352,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut y0 = State::zeros();
     y0.fixed_rows_mut::<4>(3).copy_from(&Vector4::x());
-    y0.fixed_rows_mut::<8>(7).copy_from(&joint_angles);
-    y0.fixed_rows_mut::<14>(15).copy_from(&zeta);
+    y0.fixed_rows_mut::<NJOINTS>(7).copy_from(&joint_angles);
+    y0.fixed_rows_mut::<NDOFS>(7 + NJOINTS).copy_from(&zeta);
 
     // let y0 = State::zeros();
 
