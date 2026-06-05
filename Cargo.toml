@@ -6,10 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-multibody_dynamics = "0.2.1"
+multibody_dynamics = "0.4.0"
 serde = {version = "1.0", features = ["derive"]}
 serde_yaml = "0.9"
-nalgebra = {version ="0.33", features = ["serde-serialize"]}
-# ode_solvers = {path = "ode-solvers"}
-ode_solvers = "0.5"
+nalgebra = {version ="0.34", features = ["serde-serialize"]}
+# Vendored ode_solvers 0.6.1 with nalgebra bumped to 0.34 (no published release
+# supports nalgebra 0.34 yet, which multibody_dynamics 0.4 requires). See README.
+ode_solvers = {path = "vendor/ode_solvers"}
 # csv = "1"

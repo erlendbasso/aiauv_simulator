@@ -86,6 +86,13 @@ pub struct Config {
     added_mass_coeffs: Vec<Option<f64>>,
     // fluid_added_mass: Vec<Matrix6<f64>>,
     added_alpha: Vec<f64>,
+    /// Optional per-thruster force limit in newtons (must be positive to take
+    /// effect). When set, each allocated thruster command is clamped so the
+    /// resulting force magnitude stays within this limit before being mapped
+    /// back to the generalised force, modelling actuator saturation. When unset
+    /// (the default), no thruster saturation is applied.
+    #[serde(default)]
+    thruster_force_max: Option<f64>,
 }
 
 pub struct AIAUV {
@@ -174,7 +181,7 @@ impl ode_solvers::System<f64, State> for AIAUV {
             Isometry3::from_parts(Translation3::new(pos[0], pos[1], pos[2]), quat);
         let conf = self
             .multibody
-            .minimal_to_homogenous_configuration(&configuration_base, &theta);
+            .minimal_to_homogeneous_configuration(&configuration_base, &theta);
 
         let jacs = self.multibody.compute_jacobians(&conf);
         let tcm = comp_tcm::<14, 12>(&self.config, &jacs);
@@ -185,12 +192,51 @@ impl ode_solvers::System<f64, State> for AIAUV {
         ];
 
         let f_pid: SVector<f64, 14> = stack![f_pid_b; f_pid_joint_torque];
-        let tcm_pinv = tcm_tot.transpose() * (tcm_tot * tcm_tot.transpose()).try_inverse().unwrap();
-        let u = tcm_pinv * f_pid;
 
+        // Damped (Tikhonov-regularised) right pseudo-inverse of the control
+        // effectiveness matrix: tcm_totᵀ (tcm_tot tcm_totᵀ + δI)⁻¹. The damping
+        // term makes the Gram matrix symmetric positive-definite, so it is always
+        // invertible — even in (near-)singular configurations where the previous
+        // `try_inverse().unwrap()` would panic mid-integration. If inversion ever
+        // fails anyway, fall back to applying the desired generalised force.
+        let damping = 1e-9;
+        let gram =
+            tcm_tot * tcm_tot.transpose() + damping * SMatrix::<f64, 14, 14>::identity();
+        let eta: SVector<f64, 14> = match gram.try_inverse() {
+            Some(gram_inv) => {
+                let tcm_pinv = tcm_tot.transpose() * gram_inv;
+                let mut u = tcm_pinv * f_pid;
+
+                // Per-thruster saturation: the first `num_thrusters` entries of
+                // `u` are thruster commands (the remaining 8 are joint torques,
+                // already limited via `f_pid_j_max`). The force applied by thruster
+                // `i` is `u[i] * thruster_dirs[i]`, so its magnitude is
+                // `|u[i]| * ‖thruster_dirs[i]‖`. Dividing the limit by the direction
+                // norm makes `thruster_force_max` an actual force limit in newtons
+                // even when the configured directions are not unit vectors (e.g.
+                // `[1, 0, -1]` has norm √2). Then map back to the generalised force
+                // actually produced. With no limit configured this is a near-exact
+                // round-trip (eta ≈ f_pid, up to the tiny damping term).
+                //
+                // The `f_max > 0.0` guard skips a non-positive or NaN limit:
+                // `f64::clamp` panics when `min > max`, which a negative limit
+                // would trigger.
+                if let Some(f_max) = self.config.thruster_force_max {
+                    if f_max > 0.0 {
+                        let num_thrusters = self.config.thruster_dirs.len();
+                        for i in 0..num_thrusters {
+                            let dir_norm = self.config.thruster_dirs[i].norm();
+                            let limit = if dir_norm > 1e-12 { f_max / dir_norm } else { f_max };
+                            u[i] = u[i].clamp(-limit, limit);
+                        }
+                    }
+                }
+
+                tcm_tot * u
+            }
+            None => f_pid,
+        };
         // let wrenches = compute_thruster_wrenches::<8>(&self.config, &thrust, None);
-        let eta = tcm_tot * u;
-        // eta = f_pid;
 
         let cross_flow_drag =
             &|_confs: &[Isometry3<f64>], nu: &[Vector6<f64>]| -> SMatrix<f64, 6, 9> {

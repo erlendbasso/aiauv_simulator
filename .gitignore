@@ -1,4 +1,3 @@
 /target
-/Cargo.lock
-/aiauv_dop853.dat
+*.dat
 .DS_Store

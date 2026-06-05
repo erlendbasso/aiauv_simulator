@@ -144,3 +144,6 @@ thruster_parents: [3, 3, 3, 3, 1, 1, 1, 1, 7, 7, 7, 7]
 # thruster_parents: [2, 2, 3, 3, 3, 4, 4]
 added_mass_coeffs: []
 added_alpha: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+# Optional per-thruster force limit [N]. Uncomment to enable actuator saturation
+# in the control allocation; leave commented for no saturation (default).
+# thruster_force_max: 50.0
