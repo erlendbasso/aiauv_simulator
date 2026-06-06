@@ -242,9 +242,9 @@ dependencies = [
 
 [[package]]
 name = "multibody_dynamics"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60c64f567c929c887384c9f3062299479504f9c2b4e9d89e7049b8f290ab790d"
+checksum = "0f5cd967a0be573395333813795b8f573ee6d14cc903f1c1c68f835778e73408"
 dependencies = [
  "approx",
  "nalgebra",

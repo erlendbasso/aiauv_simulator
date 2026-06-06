@@ -1,7 +1,10 @@
-// use core::num;
+use std::cell::RefCell;
 use std::f64::consts::PI;
 
-use multibody_dynamics::multibody::{Axis, JointType};
+use multibody_dynamics::multibody::{
+    Axis, Environment, ForwardDynamicsWorkspace, JointType, LinkProperties, MultiBodyConfig,
+    Topology,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml::{self};
 
@@ -97,6 +100,7 @@ pub struct Config {
 
 pub struct AIAUV {
     multibody: MultiBody<9, 14>,
+    dynamics_workspace: RefCell<ForwardDynamicsWorkspace<9>>,
     config: Config,
 }
 
@@ -200,8 +204,7 @@ impl ode_solvers::System<f64, State> for AIAUV {
         // `try_inverse().unwrap()` would panic mid-integration. If inversion ever
         // fails anyway, fall back to applying the desired generalised force.
         let damping = 1e-9;
-        let gram =
-            tcm_tot * tcm_tot.transpose() + damping * SMatrix::<f64, 14, 14>::identity();
+        let gram = tcm_tot * tcm_tot.transpose() + damping * SMatrix::<f64, 14, 14>::identity();
         let eta: SVector<f64, 14> = match gram.try_inverse() {
             Some(gram_inv) => {
                 let tcm_pinv = tcm_tot.transpose() * gram_inv;
@@ -226,7 +229,11 @@ impl ode_solvers::System<f64, State> for AIAUV {
                         let num_thrusters = self.config.thruster_dirs.len();
                         for i in 0..num_thrusters {
                             let dir_norm = self.config.thruster_dirs[i].norm();
-                            let limit = if dir_norm > 1e-12 { f_max / dir_norm } else { f_max };
+                            let limit = if dir_norm > 1e-12 {
+                                f_max / dir_norm
+                            } else {
+                                f_max
+                            };
                             u[i] = u[i].clamp(-limit, limit);
                         }
                     }
@@ -254,15 +261,18 @@ impl ode_solvers::System<f64, State> for AIAUV {
 
         // let feedforward = self.multibody.generalized_newton_euler(&conf, &zeta, mu_prime, sigma_prime, rigid_body_forces, eta)
 
-        let accel = self.multibody.forward_dynamics_ab(
+        let zero_thruster_forces = [Vector6::<f64>::zeros(); 9];
+        let mut dynamics_workspace = self.dynamics_workspace.borrow_mut();
+        let accel = self.multibody.forward_dynamics_ab_with_workspace(
             &conf,
             &zeta,
             cross_flow_drag,
             // &wrenches,
-            &vec![Vector6::<f64>::zeros(); 9],
+            &zero_thruster_forces,
             &eta,
             &lin_vel_current,
             &lin_accel_current,
+            &mut *dynamics_workspace,
         );
 
         let pos_dot = quat * zeta.fixed_rows::<3>(0);
@@ -356,45 +366,62 @@ fn setup_aiauv(cfg: &Config) -> MultiBody<9, 14> {
         volume[i] = cfg.length[i] * PI * cfg.radius[i].powi(2);
     }
 
-    MultiBody::new(
-        offset_matrices,
-        None,
-        Some(added_mass),
-        Some(rb_mass_rotational),
-        joint_types,
-        parent,
-        cfg.gravity,
-        Some(cfg.pos_com.clone()),
-        Some(cfg.pos_cob.clone()),
-        Some(mass),
-        Some(volume),
-        Some(cfg.fluid_density),
-    )
+    let link_props = (0..num_bodies)
+        .map(|i| LinkProperties {
+            mass6: None,
+            added_mass6: Some(added_mass[i]),
+            mass: Some(mass[i]),
+            r_com: Some(cfg.pos_com[i]),
+            inertia3: Some(rb_mass_rotational[i]),
+            volume: Some(volume[i]),
+            r_cob: Some(cfg.pos_cob[i]),
+        })
+        .collect();
+
+    MultiBody::from_config(MultiBodyConfig {
+        topology: Topology {
+            offset_matrices,
+            joint_types,
+            parent,
+        },
+        link_props: Some(link_props),
+        env: Environment {
+            gravity: cfg.gravity,
+            rho: cfg.fluid_density,
+        },
+    })
     .unwrap()
+}
+
+fn initial_state() -> State {
+    let joint_angles = vector![PI / 4.0, 0.0, PI / 4.0, 0.0, PI / 4.0, 0.0, PI / 4.0, 0.0];
+    let zeta = SVector::<f64, 14>::repeat(1.0);
+
+    let mut y0 = State::zeros();
+    y0.fixed_rows_mut::<4>(3).copy_from(&Vector4::x());
+    y0.fixed_rows_mut::<8>(7).copy_from(&joint_angles);
+    y0.fixed_rows_mut::<14>(15).copy_from(&zeta);
+    y0
+}
+
+fn make_system(cfg: &Config) -> AIAUV {
+    AIAUV {
+        multibody: setup_aiauv(cfg),
+        dynamics_workspace: RefCell::new(ForwardDynamicsWorkspace::new()),
+        config: cfg.clone(),
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let f = std::fs::File::open("eely_config.yml").expect("Could not open file.");
     let cfg: Config = serde_yaml::from_reader(f).expect("Could not parse file.");
 
-    let multibody = setup_aiauv(&cfg);
-
     // Simulation loop
     use std::time::Instant;
     let now = Instant::now();
 
-    let joint_angles = vector![PI / 4.0, 0.0, PI / 4.0, 0.0, PI / 4.0, 0.0, PI / 4.0, 0.0];
-    let zeta = SVector::<f64, 14>::repeat(1.0);
-
-    let system = AIAUV {
-        multibody,
-        config: cfg.clone(),
-    };
-
-    let mut y0 = State::zeros();
-    y0.fixed_rows_mut::<4>(3).copy_from(&Vector4::x());
-    y0.fixed_rows_mut::<8>(7).copy_from(&joint_angles);
-    y0.fixed_rows_mut::<14>(15).copy_from(&zeta);
+    let system = make_system(&cfg);
+    let y0 = initial_state();
 
     // let y0 = State::zeros();
 
